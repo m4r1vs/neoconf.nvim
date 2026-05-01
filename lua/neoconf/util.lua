@@ -77,7 +77,7 @@ function M.on_config(opts)
         config._neoconf_applied = true
         local bufnr = (start_opts and start_opts.bufnr) or 0
         bufnr = bufnr == 0 and vim.api.nvim_get_current_buf() or bufnr
-        local bufname = vim.api.nvim_buf_get_name(bufnr)
+        local bufname = M.fqn(vim.api.nvim_buf_get_name(bufnr))
 
         local root_dir = config.root_dir
         if not root_dir and start_opts and start_opts._root_markers then
@@ -94,7 +94,8 @@ function M.on_config(opts)
         end
 
         if opts.on_config then
-          opts.on_config(config, config.root_dir, config)
+          local original_config = vim.deepcopy(config)
+          opts.on_config(config, config.root_dir, original_config)
         end
       end
       return orig_start(config, start_opts)
