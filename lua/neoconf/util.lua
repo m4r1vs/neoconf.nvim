@@ -26,12 +26,17 @@ end
 
 function M.root_pattern(...)
   local markers = { ... }
+  if vim.fn.has("nvim-0.10") == 1 then
+    return function(path)
+      return vim.fs.root(path or 0, markers)
+    end
+  end
   local ok, lsputil = pcall(require, "lspconfig.util")
   if ok then
     return lsputil.root_pattern(unpack(markers))
   end
   return function(path)
-    return vim.fs.root(path or 0, markers)
+    return vim.fs.dirname(vim.fs.find(markers, { path = path or 0, upward = true })[1])
   end
 end
 
@@ -77,20 +82,18 @@ function M.on_config(opts)
         config._neoconf_applied = true
         local bufnr = (start_opts and start_opts.bufnr) or 0
         bufnr = bufnr == 0 and vim.api.nvim_get_current_buf() or bufnr
-        local bufname = M.fqn(vim.api.nvim_buf_get_name(bufnr))
 
-        local root_dir = config.root_dir
-        if not root_dir and start_opts and start_opts._root_markers then
-          root_dir = vim.fs.root(bufnr, start_opts._root_markers)
+        -- Use neoconf workspace detection directly.
+        -- We set lsp=false to avoid circular dependency with running clients.
+        local ws = require("neoconf.workspace").get({ buffer = bufnr, lsp = false })
+
+        if ws.root_dir then
+          config.root_dir = config.root_dir and M.pick_root_dir(ws.root_dir, config.root_dir) or ws.root_dir
         end
 
-        if opts.root_dir then
-          local neoconf_root = opts.root_dir(bufname)
-          if root_dir and neoconf_root then
-            config.root_dir = M.pick_root_dir(neoconf_root, root_dir)
-          else
-            config.root_dir = neoconf_root or root_dir
-          end
+        -- fallback to markers from start_opts if still no root_dir
+        if not config.root_dir and start_opts and start_opts._root_markers then
+          config.root_dir = vim.fs.root(bufnr, start_opts._root_markers)
         end
 
         if opts.on_config then
