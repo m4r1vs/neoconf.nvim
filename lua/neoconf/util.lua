@@ -25,20 +25,68 @@ function M.merge(...)
 end
 
 function M.root_pattern(...)
-  return require("lspconfig.util").root_pattern(...)
+  local markers = { ... }
+  local ok, lsputil = pcall(require, "lspconfig.util")
+  if ok then
+    return lsputil.root_pattern(unpack(markers))
+  end
+  return function(path)
+    return vim.fs.root(path or 0, markers)
+  end
 end
 
-function M.find_git_ancestor(...)
-  return vim.fs.dirname(vim.fs.find(".git", { path = startpath, upward = true })[1])
+function M.find_git_ancestor(startpath)
+  return vim.fs.root(startpath or 0, ".git")
 end
 
 function M.has_lspconfig(server)
-  return vim.tbl_contains(require("lspconfig.util").available_servers(), server)
+  local ok, lsputil = pcall(require, "lspconfig.util")
+  if ok then
+    return vim.tbl_contains(lsputil.available_servers(), server)
+  end
+  if vim.fn.has("nvim-0.11") == 1 then
+    return vim.lsp.config[server] ~= nil
+  end
+  return false
 end
 
 ---@param opts { on_config: fun(config, root_dir:string, original_config), root_dir: fun(), name: string }
 function M.on_config(opts)
-  local lsputil = require("lspconfig.util")
+  if vim.fn.has("nvim-0.11") == 1 then
+    local orig_start = vim.lsp.start
+    vim.lsp.start = function(config, start_opts)
+      if config and type(config) == "table" and not config._neoconf_applied then
+        config._neoconf_applied = true
+        local bufnr = (start_opts and start_opts.bufnr) or 0
+        bufnr = bufnr == 0 and vim.api.nvim_get_current_buf() or bufnr
+        local bufname = vim.api.nvim_buf_get_name(bufnr)
+
+        local root_dir = config.root_dir
+        if not root_dir and start_opts and start_opts._root_markers then
+          root_dir = vim.fs.root(bufnr, start_opts._root_markers)
+        end
+
+        if opts.root_dir then
+          local neoconf_root = opts.root_dir(bufname)
+          if root_dir and neoconf_root then
+            config.root_dir = M.pick_root_dir(neoconf_root, root_dir)
+          else
+            config.root_dir = neoconf_root or root_dir
+          end
+        end
+
+        if opts.on_config then
+          opts.on_config(config, config.root_dir, config)
+        end
+      end
+      return orig_start(config, start_opts)
+    end
+  end
+
+  local ok, lsputil = pcall(require, "lspconfig.util")
+  if not ok then
+    return
+  end
   local hook = lsputil.add_hook_before
 
   lsputil.on_setup = hook(lsputil.on_setup, function(initial_config)
