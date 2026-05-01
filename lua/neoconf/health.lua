@@ -45,35 +45,25 @@ function M.check()
 
   if lspconfig then
     ok("**lspconfig** is installed")
-    local available = lspconfig.available_servers()
-    if vim.tbl_contains(available, "jsonls") then
-      ok("**lspconfig jsonls** is installed")
-    else
-      warn("**lspconfig jsonls** is not installed? You won't get any auto completion in your settings files")
-    end
-    if vim.tbl_contains(available, "lua_ls") then
-      ok("**lspconfig lua_ls** is installed")
-    else
-      warn("**lspconfig lua_ls** is not installed? You won't get any auto completion in your lua settings files")
-    end
-  elseif vim.fn.has("nvim-0.11") == 1 then
-    ok("**vim.lsp.config** is available (Neovim 0.11+)")
-    local function has_server(name)
-      return vim.lsp.config[name] ~= nil
-    end
-    if has_server("jsonls") then
-      ok("**jsonls** is available via vim.lsp.config")
-    else
-      warn("**jsonls** is not available? You won't get any auto completion in your settings files")
-    end
-    if has_server("lua_ls") then
-      ok("**lua_ls** is available via vim.lsp.config")
-    else
-      warn("**lua_ls** is not available? You won't get any auto completion in your lua settings files")
-    end
-  else
-    error("**lspconfig** not installed?")
   end
+  if vim.fn.has("nvim-0.11") == 1 then
+    ok("**vim.lsp.config** is available (Neovim 0.11+)")
+  end
+  if not lspconfig and vim.fn.has("nvim-0.11") == 0 then
+    error("**lspconfig** not installed and Neovim version < 0.11")
+  end
+
+  local function check_server(name)
+    local util = require("neoconf.util")
+    if util.has_lspconfig(name) then
+      ok("**%s** is available", name)
+    else
+      warn("**%s** is not available. You won't get any auto completion in your settings files", name)
+    end
+  end
+
+  check_server("jsonls")
+  check_server("lua_ls")
 end
 
 function M.check_setup()

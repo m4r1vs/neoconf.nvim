@@ -40,13 +40,31 @@ function M.find_git_ancestor(startpath)
 end
 
 function M.has_lspconfig(server)
-  local ok, lsputil = pcall(require, "lspconfig.util")
-  if ok then
-    return vim.tbl_contains(lsputil.available_servers(), server)
-  end
+  -- 1. Check Neovim 0.11+ built-in config
   if vim.fn.has("nvim-0.11") == 1 then
-    return vim.lsp.config[server] ~= nil
+    local ok, lsp_config = pcall(function() return vim.lsp.config end)
+    if ok and lsp_config and lsp_config[server] ~= nil then
+      return true
+    end
   end
+
+  -- 2. Check lspconfig plugin configs directly
+  if pcall(require, "lspconfig.configs." .. server) then
+    return true
+  end
+
+  -- 3. Check lspconfig plugin via metatable
+  local ok, configs = pcall(require, "lspconfig.configs")
+  if ok and configs[server] then
+    return true
+  end
+
+  -- 4. Check lspconfig util available_servers (fallback)
+  local ok2, lsputil = pcall(require, "lspconfig.util")
+  if ok2 and lsputil.available_servers and vim.tbl_contains(lsputil.available_servers(), server) then
+    return true
+  end
+
   return false
 end
 
