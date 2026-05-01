@@ -32,6 +32,15 @@ function M.setup()
     on_config = M.on_new_config,
     root_dir = settings_root,
   })
+
+  vim.api.nvim_create_autocmd("LspAttach", {
+    callback = function(args)
+      local client = vim.lsp.get_client_by_id(args.data.client_id)
+      if client and client.name ~= "neoconf" then
+        M.on_update_client(client)
+      end
+    end,
+  })
 end
 
 function M.on_new_config(config, root_dir, original_config)
@@ -41,7 +50,9 @@ function M.on_new_config(config, root_dir, original_config)
   end
 
   -- backup original lsp config
-  config.original_settings = vim.deepcopy(original_config.settings or {})
+  if not config.original_settings then
+    config.original_settings = vim.deepcopy(original_config.settings or {})
+  end
 
   root_dir = require("neoconf.workspace").find_root({ file = root_dir })
   local enabled = Settings.get_local(root_dir):get("lspconfig." .. config.name, { expand = true })
@@ -64,6 +75,61 @@ function M.on_new_config(config, root_dir, original_config)
   )
 end
 
+function M.on_update_client(client)
+  local settings_root = require("neoconf.workspace").find_root({ file = client.config.root_dir })
+
+  local old_settings = vim.deepcopy(client.config.settings)
+
+  -- retrieve new settings only
+  client.config.settings = vim.deepcopy(client.config.original_settings or {})
+
+  if vim.fn.has("nvim-0.11") == 1 then
+    local lsp_cfg = vim.lsp.config[client.name]
+    if lsp_cfg then
+      if lsp_cfg.before_init then
+        pcall(lsp_cfg.before_init, nil, client.config)
+      end
+      if lsp_cfg.on_new_config then
+        pcall(lsp_cfg.on_new_config, client.config, client.config.root_dir)
+      end
+    end
+    if client.config.on_new_config then
+      pcall(client.config.on_new_config, client.config, client.config.root_dir)
+    end
+    -- apply neoconf settings
+    M.on_new_config(client.config, client.config.root_dir, client.config)
+  else
+    local ok_lsp, lspconfig = pcall(require, "lspconfig")
+    local document_config = ok_lsp and Util.has_lspconfig(client.name) and lspconfig[client.name].document_config
+
+    -- re-apply config from any other plugins that were overriding on_new_config
+    if document_config and document_config.on_new_config then
+      pcall(document_config.on_new_config, client.config, client.config.root_dir)
+    end
+    if client.config.on_new_config then
+      pcall(client.config.on_new_config, client.config, client.config.root_dir)
+    end
+  end
+
+  -- only send update when confiuration actually changed
+  if not vim.deep_equal(old_settings, client.config.settings) then
+    -- notify the lsp server of the new config
+    local params = { settings = client.config.settings }
+    local ok
+    if vim.fn.has("nvim-0.11") == 1 then
+      ok = pcall(client.notify, client, "workspace/didChangeConfiguration", params)
+    else
+      ok = pcall(client.notify, "workspace/didChangeConfiguration", params)
+    end
+
+    if ok then
+      Util.info("Reloaded settings for " .. client.name)
+    else
+      Util.error("Reloading settings failed for " .. client.name)
+    end
+  end
+end
+
 function M.on_update(fname)
   local is_global = Util.is_global(fname)
 
@@ -74,56 +140,7 @@ function M.on_update(fname)
 
     -- reload this client if the global file changed, or its root dir equals the local one
     if is_global or Util.has_file(settings_root, client.config.root_dir) then
-      local old_settings = vim.deepcopy(client.config.settings)
-
-      -- retrieve new settings only
-      client.config.settings = vim.deepcopy(client.config.original_settings or {})
-
-      if vim.fn.has("nvim-0.11") == 1 then
-        local lsp_cfg = vim.lsp.config[client.name]
-        if lsp_cfg then
-          if lsp_cfg.before_init then
-            pcall(lsp_cfg.before_init, nil, client.config)
-          end
-          if lsp_cfg.on_new_config then
-            pcall(lsp_cfg.on_new_config, client.config, client.config.root_dir)
-          end
-        end
-        if client.config.on_new_config then
-          pcall(client.config.on_new_config, client.config, client.config.root_dir)
-        end
-        -- apply neoconf settings
-        M.on_new_config(client.config, client.config.root_dir, client.config)
-      else
-        local ok_lsp, lspconfig = pcall(require, "lspconfig")
-        local document_config = ok_lsp and Util.has_lspconfig(client.name) and lspconfig[client.name].document_config
-
-        -- re-apply config from any other plugins that were overriding on_new_config
-        if document_config and document_config.on_new_config then
-          pcall(document_config.on_new_config, client.config, client.config.root_dir)
-        end
-        if client.config.on_new_config then
-          pcall(client.config.on_new_config, client.config, client.config.root_dir)
-        end
-      end
-
-      -- only send update when confiuration actually changed
-      if not vim.deep_equal(old_settings, client.config.settings) then
-        -- notify the lsp server of the new config
-        local params = { settings = client.config.settings }
-        local ok
-        if vim.fn.has("nvim-0.11") == 1 then
-          ok = pcall(client.notify, client, "workspace/didChangeConfiguration", params)
-        else
-          ok = pcall(client.notify, "workspace/didChangeConfiguration", params)
-        end
-
-        if ok then
-          Util.info("Reloaded settings for " .. client.name)
-        else
-          Util.error("Reloading settings failed for " .. client.name)
-        end
-      end
+      M.on_update_client(client)
     end
   end
 end
