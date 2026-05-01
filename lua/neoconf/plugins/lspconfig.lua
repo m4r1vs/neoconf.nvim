@@ -53,6 +53,12 @@ function M.on_new_config(config, root_dir, original_config)
   if not config.original_settings then
     config.original_settings = vim.deepcopy(original_config.settings or {})
   end
+  if config.original_enabled == nil then
+    config.original_enabled = config.enabled
+  end
+
+  -- reset to original state
+  config.enabled = config.original_enabled
 
   root_dir = require("neoconf.workspace").find_root({ file = root_dir })
   local enabled = Settings.get_local(root_dir):get("lspconfig." .. config.name, { expand = true })
@@ -79,6 +85,7 @@ function M.on_update_client(client)
   local settings_root = require("neoconf.workspace").find_root({ file = client.config.root_dir })
 
   local old_settings = vim.deepcopy(client.config.settings)
+  local old_enabled = client.config.enabled
 
   -- retrieve new settings only
   client.config.settings = vim.deepcopy(client.config.original_settings or {})
@@ -111,8 +118,8 @@ function M.on_update_client(client)
     end
   end
 
-  -- only send update when confiuration actually changed
-  if not vim.deep_equal(old_settings, client.config.settings) then
+  -- only send update when configuration actually changed
+  if not vim.deep_equal(old_settings, client.config.settings) or old_enabled ~= client.config.enabled then
     -- notify the lsp server of the new config
     local params = { settings = client.config.settings }
     local ok
@@ -138,8 +145,8 @@ function M.on_update(fname)
   for _, client in ipairs(clients) do
     local settings_root = require("neoconf.workspace").find_root({ file = client.config.root_dir })
 
-    -- reload this client if the global file changed, or its root dir equals the local one
-    if is_global or Util.has_file(settings_root, client.config.root_dir) then
+    -- reload this client if the global file changed, or the updated file is inside its root
+    if is_global or Util.has_file(settings_root, fname) then
       M.on_update_client(client)
     end
   end

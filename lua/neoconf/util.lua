@@ -14,6 +14,7 @@ function M.merge(...)
   for i = 2, #values, 1 do
     local value = values[i]
     if can_merge(ret) and can_merge(value) then
+      ret = vim.deepcopy(ret)
       for k, v in pairs(value) do
         ret[k] = M.merge(ret[k], v)
       end
@@ -26,17 +27,36 @@ end
 
 function M.root_pattern(...)
   local markers = { ... }
-  if vim.fn.has("nvim-0.10") == 1 then
-    return function(path)
-      return vim.fs.root(path or 0, markers)
-    end
-  end
-  local ok, lsputil = pcall(require, "lspconfig.util")
-  if ok then
-    return lsputil.root_pattern(unpack(markers))
-  end
   return function(path)
-    return vim.fs.dirname(vim.fs.find(markers, { path = path or 0, upward = true })[1])
+    path = path or 0
+    if type(path) == "number" then
+      path = vim.api.nvim_buf_get_name(path)
+    end
+    if path == "" then
+      path = vim.fn.getcwd()
+    end
+    path = M.fqn(path)
+
+    local ok, lsputil = pcall(require, "lspconfig.util")
+    if ok and lsputil.root_pattern then
+      return lsputil.root_pattern(unpack(markers))(path)
+    end
+
+    -- Fallback implementation that supports globs via vim.fs.find
+    local res = vim.fs.find(markers, { path = path, upward = true })[1]
+    if res then
+      local root = vim.fs.dirname(res)
+      -- If we found a marker like .vscode/settings.json, we want the project root
+      for _, marker in ipairs(markers) do
+        if marker:find("/") then
+          local marker_dir = vim.fs.dirname(marker)
+          if root:find(marker_dir .. "$") then
+            root = root:sub(1, #root - #marker_dir - 1)
+          end
+        end
+      end
+      return root
+    end
   end
 end
 
