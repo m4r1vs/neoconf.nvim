@@ -79,24 +79,32 @@ function M.on_update(fname)
       -- retrieve new settings only
       client.config.settings = vim.deepcopy(client.config.original_settings or {})
 
-      local ok_lsp, lspconfig = pcall(require, "lspconfig")
-      local document_config = ok_lsp and Util.has_lspconfig(client.name) and lspconfig[client.name].document_config
-
-      -- re-apply config from any other plugins that were overriding on_new_config
-      if document_config and document_config.on_new_config then
-        pcall(document_config.on_new_config, client.config, client.config.root_dir)
-      end
-      if client.config.on_new_config then
-        pcall(client.config.on_new_config, client.config, client.config.root_dir)
-      end
-
       if vim.fn.has("nvim-0.11") == 1 then
         local lsp_cfg = vim.lsp.config[client.name]
-        if lsp_cfg and lsp_cfg.before_init then
-          pcall(lsp_cfg.before_init, nil, client.config)
+        if lsp_cfg then
+          if lsp_cfg.before_init then
+            pcall(lsp_cfg.before_init, nil, client.config)
+          end
+          if lsp_cfg.on_new_config then
+            pcall(lsp_cfg.on_new_config, client.config, client.config.root_dir)
+          end
+        end
+        if client.config.on_new_config then
+          pcall(client.config.on_new_config, client.config, client.config.root_dir)
         end
         -- apply neoconf settings
         M.on_new_config(client.config, client.config.root_dir, client.config)
+      else
+        local ok_lsp, lspconfig = pcall(require, "lspconfig")
+        local document_config = ok_lsp and Util.has_lspconfig(client.name) and lspconfig[client.name].document_config
+
+        -- re-apply config from any other plugins that were overriding on_new_config
+        if document_config and document_config.on_new_config then
+          pcall(document_config.on_new_config, client.config, client.config.root_dir)
+        end
+        if client.config.on_new_config then
+          pcall(client.config.on_new_config, client.config, client.config.root_dir)
+        end
       end
 
       -- only send update when confiuration actually changed
