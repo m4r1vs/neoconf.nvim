@@ -362,7 +362,7 @@ function M.exists(fname)
 end
 
 function M.notify(msg, level)
-  vim.notify(msg, level, {
+  vim.notify("[neoconf.nvim] " .. msg, level, {
     title = "settings.nvim",
     on_open = function(win)
       vim.api.nvim_set_option_value("conceallevel", 3, {
